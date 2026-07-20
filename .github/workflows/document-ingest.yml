@@ -1,0 +1,65 @@
+name: Auto-Ingest Documents
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "documents/**"
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    name: Send documents to IDP pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Find changed documents
+        id: changed
+        run: |
+          CHANGED=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- documents/ 2>/dev/null || echo "")
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Changed files: $CHANGED"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install requests
+
+      - name: Upload documents to IDP API
+        env:
+          IDP_URL: [webapp-banking-idp.azurewebsites.net](https://webapp-banking-idp.azurewebsites.net)
+        run: |
+          python3 << 'EOF'
+          import os, requests
+
+          api_url = os.environ["IDP_URL"]
+          raw     = """${{ steps.changed.outputs.files }}""".strip()
+
+          if not raw:
+              print("No documents changed — skipping")
+              exit(0)
+
+          file_paths = [f for f in raw.split("\n") if f.strip() and os.path.exists(f)]
+          print(f"Processing {len(file_paths)} file(s)")
+
+          for path in file_paths:
+              name = os.path.basename(path)
+              print(f"  Uploading: {name}")
+              with open(path, "rb") as f:
+                  r = requests.post(
+                      f"{api_url}/documents/upload",
+                      files={"file": (name, f)},
+                      timeout=120,
+                  )
+              if r.status_code == 200:
+                  d = r.json()
+                  print(f"  OK  type={d.get('doc_type')}  confidence={d.get('overall_confidence')}  status={d.get('status')}")
+              else:
+                  print(f"  FAIL  {r.status_code}: {r.text[:200]}")
+          EOF
