@@ -14,18 +14,12 @@ const SAMPLES = [
 export default function UploadPage() {
   const [uploading, setUploading] = useState(false)
   const [uploaded, setUploaded]   = useState(null)
-  const [customKeywords, setCustomKeywords] = useState('') // New state
   const navigate = useNavigate()
 
   const process = useCallback(async (file) => {
     setUploading(true); setUploaded(null)
     const tid = toast.loading('Extracting document fields…')
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      if (customKeywords.trim()) {
-        fd.append('custom_keywords', customKeywords.trim());
-      }
       const res = await api.post('/documents/upload', fd);
       const res = await uploadDocument(file)
       setUploaded(res.data)
