@@ -183,7 +183,7 @@ def extract_with_azure_doc_intel(content: bytes, doc_type: str):
     return raw_text, azure_fields
 
 
-async def extract_fields_llm(text: str, doc_type: str, already_found: list, custom_keywords: list) -> dict:
+async def extract_fields_llm(text: str, doc_type: str, already_found: list) -> dict:
     """
     Stage 2: LLM fills gaps not found by Document Intelligence, summarizes, NER.
     """
@@ -193,7 +193,7 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
     if not missing:
         missing = fields[:4]  # always get summary + spot-check
 
-    fields_to_find = missing + custom_keywords
+    
     client, model = get_llm_client()
 
     try:
@@ -204,7 +204,7 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": (
                     f"Document type: {doc_type} — {schema['description']}\n"
-                    f"Fields to extract: {', '.join(fields_to_find)}\n\n"
+                    f"Fields to extract: {', '.join(missing)}\n\n"
                     f"Document text:\n{text[:9000]}"
                 )},
             ],
@@ -218,14 +218,11 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
         return {"summary": f"LLM error: {e}", "fields": {}}
 
 
-async def extract_document(content: bytes, suffix: str, doc_type: str, custom_keywords: list = None) -> dict:
+async def extract_document(content: bytes, suffix: str, doc_type: str) -> dict:
     """
     Full two-stage pipeline.
     Returns dict with: summary, fields, raw_text, llm_used.
     """
-    if custom_keywords is None:
-        custom_keywords = []
-
     azure_fields = {}
     raw_text     = ""
 
@@ -240,7 +237,7 @@ async def extract_document(content: bytes, suffix: str, doc_type: str, custom_ke
         raw_text = extract_text_basic(content, suffix)
 
     # Stage 2 — LLM enrichment
-    llm_result = await extract_fields_llm(raw_text, doc_type, list(azure_fields.keys()), custom_keywords)
+    llm_result = await extract_fields_llm(raw_text, doc_type, list(azure_fields.keys()))
 
     # Merge: Azure fields override LLM on same keys (Azure has higher accuracy)
     merged = {**llm_result.get("fields", {}), **azure_fields}
