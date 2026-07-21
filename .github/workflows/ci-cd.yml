@@ -1,5 +1,9 @@
 name: IDP Banking CI/CD
 
+permissions:
+   id-token: write
+   contents: write
+
 on:
   push:
     branches:
