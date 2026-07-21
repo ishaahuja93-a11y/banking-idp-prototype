@@ -44,19 +44,7 @@ export default function UploadPage() {
         <p className="text-gray-600 font-medium">{isDragActive ? 'Drop file here…' : 'Drag & drop a document, or click to browse'}</p>
         <p className="text-gray-400 text-sm mt-1">PDF or TXT</p>
       </div>
-      <div className="card">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Custom Fields (comma-separated, optional)
-        </label>
-        <input 
-          type="text" 
-          value={customKeywords}
-          onChange={(e) => setCustomKeywords(e.target.value)}
-          placeholder="e.g., SWIFT Code, Vendor Email, ESG Rating" 
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
-        />
-      </div>
-      <div className="card">
+    <div className="card">
         <h3 className="font-semibold text-gray-700 mb-3">Or load a sample document:</h3>
         <div className="grid grid-cols-3 gap-3">
           {SAMPLES.map(s => (
