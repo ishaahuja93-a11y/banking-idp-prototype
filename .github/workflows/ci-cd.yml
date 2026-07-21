@@ -12,7 +12,13 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:     
+  workflow_dispatch: 
+     inputs:
+       run_job:
+        description: 'Run this workflow?'
+        required: true
+        type: boolean
+        default: true
 
 env:
   WEBAPP_NAME: webapp-banking-idp
