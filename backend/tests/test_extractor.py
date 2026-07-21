@@ -119,6 +119,7 @@ async def test_llm_extract_invoice():
     assert "fields" in result
     assert "summary" in result
 
+
 @pytest.mark.asyncio
 async def test_llm_returns_dict_on_garbage():
     if not settings.use_azure_openai and not settings.openai_api_key:
