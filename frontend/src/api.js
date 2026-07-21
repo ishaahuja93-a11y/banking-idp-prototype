@@ -8,7 +8,14 @@ const baseURL = import.meta.env.PROD
 
 const api = axios.create({ baseURL })
 
-export const uploadDocument    = file => { const fd = new FormData(); fd.append('file', file); return api.post('/documents/upload', fd) }
+export const uploadDocument = (file, customKeywords) => { 
+  const fd = new FormData(); 
+  fd.append('file', file);
+  if (customKeywords && customKeywords.trim() !== '') {
+    fd.append('custom_keywords', customKeywords.trim());
+  }
+  return api.post('/documents/upload', fd);
+}
 export const listDocuments     = params => api.get('/documents', { params })
 export const getDocument       = id => api.get(`/documents/${id}`)
 export const submitCorrection  = p => api.post('/documents/correct', p)
