@@ -2,12 +2,15 @@ name: IDP Banking CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 env:
-  AZURE_WEBAPP_NAME: webapp-banking-idp
+  WEBAPP_NAME: webapp-banking-idp
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "18"
 
@@ -31,10 +34,15 @@ jobs:
           pip install pytest pytest-asyncio
 
       - name: Run tests
-        run: cd backend && pytest tests/ -v --tb=short
+        run: |
+          cd backend
+          pytest tests/ -v --tb=short
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4.1-mini
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
 
   build-frontend:
     name: Frontend Build
@@ -53,6 +61,9 @@ jobs:
           cd frontend
           npm ci
           npm run build
+        env:
+          VITE_API_URL: https://webapp-banking-idp.azurewebsites.net
+
 
       - uses: actions/upload-artifact@v4
         with:
@@ -63,7 +74,9 @@ jobs:
   deploy-backend:
     name: Deploy Backend
     runs-on: ubuntu-latest
-    needs: [test-backend, build-frontend]
+    needs:
+      - test-backend
+      - build-frontend
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +86,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: cd backend && pip install -r requirements.txt
+        run: |
+          cd backend
+          pip install -r requirements.txt
 
       - name: Zip backend
         run: |
@@ -94,25 +109,29 @@ jobs:
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          app-name: ${{ env.WEBAPP_NAME }}
           package: backend-deploy.zip
 
       - name: Health check
+        env:
+          APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
           sleep 30
-          APP_URL="[${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/health")
-          echo "Health check status: $STATUS"
+          URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net/health)"
+          echo "Checking: $URL"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+          echo "Status: $STATUS"
           if [ "$STATUS" != "200" ]; then
-            echo "Health check failed with status $STATUS"
+            echo "Health check failed"
             exit 1
           fi
-          echo "Deployment successful"
+          echo "Backend deployment OK"
 
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
-    needs: [build-frontend]
+    needs:
+      - build-frontend
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
@@ -134,24 +153,32 @@ jobs:
   smoke-test:
     name: Smoke Test
     runs-on: ubuntu-latest
-    needs: [deploy-backend, deploy-frontend]
+    needs:
+      - deploy-backend
+      - deploy-frontend
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Health endpoint check
+      - name: Health check
+        env:
+          APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
-          APP_URL="[${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
-          curl -f "$APP_URL/health"
+          URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net/health)"
+          echo "Testing: $URL"
+          curl -f "$URL"
+          echo "Health check passed"
 
-      - name: Upload test document
+      - name: Document upload test
+        env:
+          APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
-          APP_URL="[${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
-          echo "INVOICE INV-SMOKE-001 Total INR 50000 Vendor Test Corp" > smoke.txt
-          RESP=$(curl -s -X POST "$APP_URL/documents/upload" -F "file=@smoke.txt")
+          URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net)"
+          echo "INVOICE INV-SMOKE-001 Total INR 50000 Vendor Test Corp Mumbai" > smoke.txt
+          RESP=$(curl -s -X POST "${URL}/documents/upload" -F "file=@smoke.txt")
           echo "Response: $RESP"
           echo "$RESP" | python3 -c "
           import json, sys
           d = json.load(sys.stdin)
-          assert 'id' in d, 'Missing id in response'
-          assert 'fields' in d, 'Missing fields in response'
+          assert 'id' in d, 'Missing id'
+          assert 'fields' in d, 'Missing fields'
           print('Smoke test PASSED')
           "
