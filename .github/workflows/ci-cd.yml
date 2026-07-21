@@ -75,28 +75,39 @@ jobs:
       - name: Install dependencies
         run: cd backend && pip install -r requirements.txt
 
-      - name: Zip backend for deployment
+      - name: Zip backend
         run: |
           cd backend
           zip -r ../backend-deploy.zip . \
-            -x "uploads/*" "documents.json" \
-            -x "__pycache__/*" "*.pyc" \
-            -x "tests/*" ".env"
+            -x "uploads/*" \
+            -x "documents.json" \
+            -x "__pycache__/*" \
+            -x "*.pyc" \
+            -x "tests/*" \
+            -x ".env"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: backend-deploy.zip
 
       - name: Health check
         run: |
           sleep 30
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            [${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health)
+          APP_URL="[${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/health")
           echo "Health check status: $STATUS"
-          if [ "$STATUS" != "200" ]; then exit 1; fi
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "Deployment successful"
 
   deploy-frontend:
     name: Deploy Frontend
@@ -126,20 +137,21 @@ jobs:
     needs: [deploy-backend, deploy-frontend]
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Test health endpoint
+      - name: Health endpoint check
         run: |
-          curl -f [${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health
+          APP_URL="[${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          curl -f "$APP_URL/health"
 
-      - name: Test document upload
+      - name: Upload test document
         run: |
-          echo "INVOICE Test Invoice INV-SMOKE-001 Total INR 50000 GST 9000" > test.txt
-          RESP=$(curl -s -X POST \
-            [${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net/documents/upload \
-            -F "file=@test.txt")
-          echo $RESP | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)
-          assert 'id' in d, 'Missing id'
-          assert 'fields' in d, 'Missing fields'
+          APP_URL="[${{](https://${{) env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          echo "INVOICE INV-SMOKE-001 Total INR 50000 Vendor Test Corp" > smoke.txt
+          RESP=$(curl -s -X POST "$APP_URL/documents/upload" -F "file=@smoke.txt")
+          echo "Response: $RESP"
+          echo "$RESP" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          assert 'id' in d, 'Missing id in response'
+          assert 'fields' in d, 'Missing fields in response'
           print('Smoke test PASSED')
           "
