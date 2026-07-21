@@ -14,11 +14,19 @@ const SAMPLES = [
 export default function UploadPage() {
   const [uploading, setUploading] = useState(false)
   const [uploaded, setUploaded]   = useState(null)
+  const [customKeywords, setCustomKeywords] = useState('') // New state
   const navigate = useNavigate()
 
   const process = useCallback(async (file) => {
     setUploading(true); setUploaded(null)
+    const tid = toast.loading('Extracting document fields…')
     try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (customKeywords.trim()) {
+        fd.append('custom_keywords', customKeywords.trim());
+      }
+      const res = await api.post('/documents/upload', fd);
       const res = await uploadDocument(file)
       setUploaded(res.data)
       toast.success(`Extracted ${Object.keys(res.data.fields).length} fields from ${res.data.doc_type}`)
@@ -41,6 +49,18 @@ export default function UploadPage() {
         <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
         <p className="text-gray-600 font-medium">{isDragActive ? 'Drop file here…' : 'Drag & drop a document, or click to browse'}</p>
         <p className="text-gray-400 text-sm mt-1">PDF or TXT</p>
+      </div>
+      <div className="card">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Custom Fields (comma-separated, optional)
+        </label>
+        <input 
+          type="text" 
+          value={customKeywords}
+          onChange={(e) => setCustomKeywords(e.target.value)}
+          placeholder="e.g., SWIFT Code, Vendor Email, ESG Rating" 
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
+        />
       </div>
       <div className="card">
         <h3 className="font-semibold text-gray-700 mb-3">Or load a sample document:</h3>
