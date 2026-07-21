@@ -104,8 +104,7 @@ async def upload_document(file: UploadFile = File(...)):
     # Detect type and extract
     preview  = content.decode("utf-8", errors="replace")[:500]
     doc_type = detect_document_type(preview, file.filename)
-    keywords_list = [k.strip() for k in custom_keywords.split(",")] if custom_keywords else []
-    result = await extract_document(content, suffix, doc_type, keywords_list)
+    result = await extract_document(content, suffix, doc_type)
 
     # Compute overall confidence
     fields = result.get("fields", {})
