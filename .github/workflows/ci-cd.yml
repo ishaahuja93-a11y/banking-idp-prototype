@@ -12,7 +12,7 @@ on:
 env:
   WEBAPP_NAME: webapp-banking-idp
   PYTHON_VERSION: "3.11"
-  NODE_VERSION: "18"
+  NODE_VERSION: "22"
 
 jobs:
 
@@ -25,14 +25,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
 
       - name: Install dependencies
         run: |
           cd backend
           pip install -r requirements.txt
           pip install pytest pytest-asyncio anyio
-
 
       - name: Run tests
         run: |
@@ -53,18 +51,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          node-version: "22"
 
       - name: Install and build
         run: |
           cd frontend
-          npm ci
-          npm run build
+          npm install
+          node node_modules/vite/bin/vite.js build
         env:
-          VITE_API_URL: https://webapp-banking-idp.azurewebsites.net
-
+          VITE_API_URL: [webapp-banking-idp.azurewebsites.net](https://webapp-banking-idp.azurewebsites.net)
 
       - uses: actions/upload-artifact@v4
         with:
@@ -103,7 +98,7 @@ jobs:
             -x ".env"
 
       - name: Login to Azure
-        uses: azure/login@v2
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -119,14 +114,14 @@ jobs:
         run: |
           sleep 30
           URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net/health)"
-          echo "Checking: $URL"
+          echo "Checking $URL"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
           echo "Status: $STATUS"
           if [ "$STATUS" != "200" ]; then
             echo "Health check failed"
             exit 1
           fi
-          echo "Backend deployment OK"
+          echo "Backend deployed OK"
 
   deploy-frontend:
     name: Deploy Frontend
@@ -139,13 +134,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Build frontend
         run: |
           cd frontend
           npm install
-          npx vite build
+          node node_modules/vite/bin/vite.js build
         env:
           VITE_API_URL: https://webapp-banking-idp.azurewebsites.net
 
@@ -157,7 +152,7 @@ jobs:
           action: upload
           app_location: frontend
           output_location: dist
-          skip_app_build: false
+          skip_app_build: true
 
   smoke-test:
     name: Smoke Test
@@ -172,7 +167,7 @@ jobs:
           APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
           URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net/health)"
-          echo "Testing: $URL"
+          echo "Testing $URL"
           curl -f "$URL"
           echo "Health check passed"
 
