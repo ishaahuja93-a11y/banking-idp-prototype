@@ -69,20 +69,23 @@ async def health():
         "ts":        datetime.utcnow().isoformat(),
     }
 
-
+# Add `Form` to your existing imports
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 @app.post("/documents/upload")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    custom_keywords: Optional[str] = Form(None) # Properly accepts multiform form-data
+):
     doc_id  = str(uuid.uuid4())
     suffix  = Path(file.filename).suffix.lower() or ".txt"
     content = await file.read()
-
-    # Save file locally (or to Blob Storage if configured)
+    
+    # Upload to Azure Blob or local (Keep your existing blob upload logic here)
     save_path = UPLOAD_DIR / f"{doc_id}{suffix}"
     async with aiofiles.open(save_path, "wb") as f:
         await f.write(content)
-
-    # Upload to Azure Blob if configured
     file_url = f"/uploads/{doc_id}{suffix}"
+    
     if settings.use_blob:
         try:
             from azure.storage.blob import BlobServiceClient
