@@ -18,22 +18,35 @@ export default function UploadPage() {
   const navigate = useNavigate()
 
   const process = useCallback(async (file) => {
-    setUploading(true); setUploaded(null)
-    const tid = toast.loading('Extracting document fields…')
+  setUploading(true); setUploaded(null)
+  const tid = toast.loading('Extracting document fields…')
+    
     try {
+      // 1. Create the form data payload directly here
       const fd = new FormData();
       fd.append('file', file);
-      if (customKeywords.trim()) {
+      
+      if (customKeywords && customKeywords.trim()) {
         fd.append('custom_keywords', customKeywords.trim());
       }
+      
+      // 2. Call the API (assuming you imported 'api' at the top of the file)
+      //    Normally you would just do `await uploadDocument(file, customKeywords)`, 
+      //    but doing it this way skips modifying api.js again.
       const res = await api.post('/documents/upload', fd);
-      const res = await uploadDocument(file)
+      
+      // 3. Handle success
       setUploaded(res.data)
-      toast.success(`Extracted ${Object.keys(res.data.fields).length} fields from ${res.data.doc_type}`)
+      const fieldCount = Object.keys(res.data.fields || {}).length
+      toast.success(`Extracted ${fieldCount} fields`, { id: tid })
+      
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Upload failed')
-    } finally { setUploading(false) }
-  }, [])
+      toast.error(err.response?.data?.detail || 'Upload failed', { id: tid })
+    } finally { 
+      setUploading(false) 
+    }
+  }, [customKeywords]) // <-- IMPORTANT: Add customKeywords here so React reads the input box
+
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: files => files[0] && process(files[0]),
