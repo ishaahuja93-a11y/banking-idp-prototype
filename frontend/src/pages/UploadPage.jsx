@@ -1,9 +1,16 @@
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useNavigate } from 'react-router-dom'
-import { uploadDocument } from '../api'
+import axios from 'axios'
 import toast from 'react-hot-toast'
-import { Upload, FileText, CheckCircle, Loader } from 'lucide-react'
+import { Upload, FileText, CheckCircle, Loader2, GitBranch } from 'lucide-react'
+// import { uploadDocument } from '../api' // You can delete this line
+
+// Re-create the api instance specifically for this page so you don't mess up api.js
+const api = axios.create({ 
+  baseURL: import.meta.env.PROD ? import.meta.env.VITE_API_URL : '/api' 
+})
+
 
 const SAMPLES = [
   { label: 'Invoice', type: 'invoice', content: `INVOICE\nInvoice #: INV-2024-001\nDate: 15 January 2024\nDue Date: 14 February 2024\n\nFrom: TechCorp Solutions Pvt Ltd\n42, Bandra Kurla Complex, Mumbai 400051\n\nTo: National Banking Corp\n\nLine Items:\n1. Cloud Infrastructure Services    INR 1,20,000\n2. Security Audit & Compliance      INR 45,000\n3. API Integration Support          INR 35,000\n\nSubtotal: INR 2,00,000\nGST (18%): INR 36,000\nTotal Amount Due: INR 2,36,000\n\nPayment Terms: Net 30 days\nBank: HDFC Bank | Account: 12345678901 | IFSC: HDFC0001234\nPO Reference: PO-BANK-2024-78` },
