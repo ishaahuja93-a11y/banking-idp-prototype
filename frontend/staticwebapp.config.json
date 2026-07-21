@@ -1,0 +1,22 @@
+{
+  "routes": [
+    {
+      "route": "/*",
+      "serve": "/index.html",
+      "statusCode": 200
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/assets/*",
+      "/*.{png,jpg,gif,ico,css,js,svg,woff,woff2}"
+    ]
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-store"
+  },
+  "platform": {
+    "apiRuntime": "node:20"
+  }
+}
