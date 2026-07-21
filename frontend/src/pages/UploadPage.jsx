@@ -78,6 +78,18 @@ export default function UploadPage() {
           type="text" 
           value={customKeywords}
           onChange={(e) => setCustomKeywords(e.target.value)}
+          placeholder="e.g., SWIFT Code, Vendor Email, Delivery SLA" 
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
+        />
+      </div>
+      <div className="card">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Custom Fields (comma-separated, optional)
+        </label>
+        <input 
+          type="text" 
+          value={customKeywords}
+          onChange={(e) => setCustomKeywords(e.target.value)}
           placeholder="e.g., SWIFT Code, Vendor Email, ESG Rating" 
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-blue-300 focus:border-blue-400 focus:outline-none"
         />
