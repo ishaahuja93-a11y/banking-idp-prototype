@@ -59,7 +59,7 @@ jobs:
           npm install
           node node_modules/vite/bin/vite.js build
         env:
-          VITE_API_URL: [webapp-banking-idp.azurewebsites.net](https://webapp-banking-idp.azurewebsites.net)
+          VITE_API_URL: https://webapp-banking-idp.azurewebsites.net
 
       - uses: actions/upload-artifact@v4
         with:
