@@ -20,7 +20,6 @@ export default function UploadPage() {
     setUploading(true); setUploaded(null)
     const tid = toast.loading('Extracting document fields…')
     try {
-      const res = await api.post('/documents/upload', fd);
       const res = await uploadDocument(file)
       setUploaded(res.data)
       toast.success(`Extracted ${Object.keys(res.data.fields).length} fields from ${res.data.doc_type}`)
