@@ -119,7 +119,7 @@ jobs:
           APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
           sleep 30
-          URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net/health)"
+          URL="https://${APP_NAME}.azurewebsites.net/health"
           echo "Checking $URL"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
           echo "Status: $STATUS"
@@ -172,7 +172,7 @@ jobs:
         env:
           APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
-          URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net/health)"
+          URL="https://${APP_NAME}.azurewebsites.net/health"
           echo "Testing $URL"
           curl -f "$URL"
           echo "Health check passed"
@@ -181,7 +181,7 @@ jobs:
         env:
           APP_NAME: ${{ env.WEBAPP_NAME }}
         run: |
-          URL="[${app_name}.azurewebsites.net](https://${APP_NAME}.azurewebsites.net)"
+          URL="https://${APP_NAME}.azurewebsites.net"
           echo "INVOICE INV-SMOKE-001 Total INR 50000 Vendor Test Corp Mumbai" > smoke.txt
           RESP=$(curl -s -X POST "${URL}/documents/upload" -F "file=@smoke.txt")
           echo "Response: $RESP"
