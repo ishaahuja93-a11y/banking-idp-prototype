@@ -429,3 +429,81 @@ async def chat_about_document(raw_text: str, fields: dict,
         return await call_llm(system_prompt, user_prompt)
     except Exception as e:
         return f"Agent error: {e}"
+
+
+# ─── Standalone wrappers ─────────────────────────────────────────────────────
+# These expose class methods as module-level functions so that:
+# 1. Tests can import and call them directly
+# 2. main.py can call them without instantiating a class
+# 3. The pipeline works consistently whether using class or function style
+
+def extract_text_basic(content: bytes, suffix: str) -> str:
+    """Standalone wrapper for text extraction."""
+    if suffix in [".txt", ".md", ".csv"]:
+        return content.decode("utf-8", errors="replace")[:15000]
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(content))
+            text   = "\n".join(p.extract_text() or "" for p in reader.pages)
+            if len(text.strip()) > 100:
+                return text[:15000]
+        except Exception:
+            pass
+    try:
+        return content.decode("utf-8", errors="replace")[:15000]
+    except Exception:
+        return "[Could not extract text]"
+
+
+def detect_document_type(text: str, filename: str) -> str:
+    """Standalone wrapper for document type detection."""
+    combined = (text + " " + filename).lower()
+    scores = {
+        "invoice": sum(1 for kw in [
+            "invoice", "bill", "total amount", "due date",
+            "subtotal", "vendor", "tax", "gst", "vat",
+        ] if kw in combined),
+        "kyc": sum(1 for kw in [
+            "kyc", "know your customer", "date of birth",
+            "passport", "pan", "aadhaar", "nationality",
+        ] if kw in combined),
+        "contract": sum(1 for kw in [
+            "agreement", "contract", "governing law",
+            "liability", "indemnity", "termination", "parties",
+        ] if kw in combined),
+        "bank_statement": sum(1 for kw in [
+            "statement", "account number", "balance",
+            "debit", "credit", "opening balance",
+        ] if kw in combined),
+        "regulatory_filing": sum(1 for kw in [
+            "filing", "regulator", "rbi", "sebi",
+            "compliance", "regulatory",
+        ] if kw in combined),
+        "tender": sum(1 for kw in [
+            "tender", "nit", "e-tender", "earnest money",
+            "estimated cost", "turn-key", "technical bid",
+            "jal nigam", "nagar palika", "municipal",
+        ] if kw in combined),
+    }
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "invoice"
+
+
+async def extract_document(content: bytes, suffix: str, doc_type: str, custom_keywords: list = None) -> dict:
+    """Standalone wrapper for the full extraction pipeline."""
+    if custom_keywords is None:
+        custom_keywords = []
+
+    raw_text = extract_text_basic(content, suffix)
+
+    llm_result = await extract_fields_llm(raw_text, doc_type, [], custom_keywords)
+
+    return {
+        "summary":  llm_result.get("summary", ""),
+        "fields":   llm_result.get("fields", {}),
+        "raw_text": raw_text[:600],
+        "llm_used": settings.llm_label,
+    }
+
