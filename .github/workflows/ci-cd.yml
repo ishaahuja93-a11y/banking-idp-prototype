@@ -1,4 +1,4 @@
-name: IDP Banking CI/CD
+name: IDP Banking CI/CD DEV
 
 permissions:
    id-token: write
