@@ -53,25 +53,47 @@ DOCUMENT_SCHEMAS = {
         ],
         "azure_model": "prebuilt-document",
     },
+    "tender": {
+    "description": "Government tender notice or NIT (Notice Inviting Tender)",
+    "fields": [
+        "tender_reference_number",
+        "issuing_authority",
+        "work_description",
+        "estimated_cost",
+        "earnest_money",
+        "bid_document_cost",
+        "completion_period",
+        "last_submission_date",
+        "submission_time",
+        "bid_opening_date",
+        "bid_opening_location",
+        "contact_email",
+        "project_location",
+    ],
+    "azure_model": "prebuilt-document",
+},
 }
 
 SYSTEM_PROMPT = """You are an expert financial document analyst at a bank.
 Extract structured data from the document text provided.
 
 STRICT RULES:
-1. Return ONLY valid JSON. No markdown fences. No text outside the JSON.
+1. Return ONLY valid JSON. No markdown. No trailing commas. Start with { end with }.
 2. Every field must have: "value" (string or null), "confidence" (0.0-1.0), "status".
-3. Status values: "auto_accept" if confidence>=0.85, "review_amber" if 0.60-0.84, "review_red" if below 0.60.
-4. If a field is not present in the document: value=null, confidence=0.0, status="review_red".
-5. If a value is ambiguous or unclear: confidence below 0.60 and add "ambiguity_reason" key.
-6. Add top-level key "summary": 2 sentences describing the document in plain English.
+3. Status: "auto_accept" (>=0.85), "review_amber" (0.60-0.84), "review_red" (<0.60).
+4. If a field is absent: value=null, confidence=0.0, status="review_red".
+5. If ambiguous: confidence<0.60, add "ambiguity_reason".
+6. Add top-level "summary": 2-sentence plain English document description.
+7. IMPORTANT: Look carefully inside tables - values in table cells are critical.
+8. IMPORTANT: Numbers written as "Rs. X Lacs" mean X * 100000 Indian Rupees.
+9. IMPORTANT: Look for values in ALL columns of every table row.
+10. The document may contain Hindi text - extract English values where present.
 
-Required JSON output format:
+Output format:
 {
-  "summary": "This is an invoice from...",
+  "summary": "...",
   "fields": {
-    "vendor_name": {"value": "ABC Corp", "confidence": 0.97, "status": "auto_accept"},
-    "due_date":    {"value": null, "confidence": 0.0, "status": "review_red"}
+    "field_name": {"value": "...", "confidence": 0.95, "status": "auto_accept"}
   }
 }"""
 
@@ -134,46 +156,93 @@ def detect_document_type(text: str, filename: str) -> str:
     combined = (text + " " + filename).lower()
     scores = {
         "invoice": sum(1 for kw in [
-            "invoice", "bill", "total amount", "due date",
-            "subtotal", "vendor", "tax", "gst", "vat",
+            "invoice", "bill", "total amount", "due date", "subtotal", "vendor", "tax", "gst", "vat",
         ] if kw in combined),
         "kyc": sum(1 for kw in [
-            "kyc", "know your customer", "date of birth",
-            "passport", "pan", "aadhaar", "aadhar", "nationality",
+            "kyc", "know your customer", "date of birth", "passport", "pan", "aadhaar", "nationality",
         ] if kw in combined),
         "contract": sum(1 for kw in [
-            "agreement", "contract", "governing law",
-            "liability", "indemnity", "termination", "parties",
+            "agreement", "contract", "governing law", "liability", "indemnity", "termination", "parties",
         ] if kw in combined),
         "bank_statement": sum(1 for kw in [
-            "statement", "account number", "balance",
-            "debit", "credit", "opening balance",
+            "statement", "account number", "balance", "debit", "credit", "opening balance",
         ] if kw in combined),
         "regulatory_filing": sum(1 for kw in [
-            "filing", "regulator", "rbi", "sebi",
-            "compliance", "regulatory",
+            "filing", "regulator", "rbi", "sebi", "compliance", "regulatory",
+        ] if kw in combined),
+
+        # NEW: Tender documents
+        "tender": sum(1 for kw in [
+            "tender", "nit", "e-tender", "notice inviting tender",
+            "earnest money", "bid document", "estimated cost",
+            "turn-key", "technical bid", "financial bid",
+            "jal nigam", "nagar palika", "municipal",
         ] if kw in combined),
     }
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "invoice"
 
-
-def extract_text_basic(content: bytes, suffix: str) -> str:
-    """Plain text extraction — used for .txt files and as fallback."""
+def extract_text_basic(self, content: bytes, suffix: str) -> str:
+    """
+    Extract text from document.
+    For image-based PDFs: uses OCR via pdf2image + pytesseract.
+    For text-based PDFs: uses pypdf.
+    For text files: direct decode.
+    """
     if suffix in [".txt", ".md", ".csv"]:
         return content.decode("utf-8", errors="replace")[:15000]
+
     if suffix == ".pdf":
+        # First try pypdf for text-based PDFs
         try:
             from pypdf import PdfReader
             import io
-            reader = PdfReader(io.BytesIO(content))
-            return "\n".join(p.extract_text() or "" for p in reader.pages)[:15000]
+            reader   = PdfReader(io.BytesIO(content))
+            pages    = [p.extract_text() or "" for p in reader.pages]
+            combined = "\n".join(pages).strip()
+
+            # If pypdf got meaningful text (>100 chars), use it
+            if len(combined) > 100:
+                return combined[:15000]
+
+            # Otherwise it is an image-based PDF — fall through to OCR
+            print("PDF appears image-based, attempting OCR...")
         except Exception as e:
-            return f"[PDF error: {e}]"
+            print(f"pypdf error: {e}")
+
+        # OCR fallback for image-based PDFs
+        try:
+            from pdf2image import convert_from_bytes
+            import pytesseract
+            from PIL import Image
+
+            # Convert PDF pages to images
+            images = convert_from_bytes(content, dpi=300)
+            ocr_text = ""
+            for i, image in enumerate(images):
+                # Use English + Hindi OCR
+                text = pytesseract.image_to_string(
+                    image,
+                    lang="eng+hin",    # eng for English, hin for Hindi
+                    config="--psm 6"   # Assume uniform block of text
+                )
+                ocr_text += f"\n--- Page {i+1} ---\n{text}"
+                if len(ocr_text) > 15000:
+                    break
+
+            if ocr_text.strip():
+                print(f"OCR extracted {len(ocr_text)} characters")
+                return ocr_text[:15000]
+
+        except Exception as e:
+            print(f"OCR error: {e}")
+            return f"[OCR failed: {e}. Install tesseract and pdf2image for image PDF support]"
+
     try:
         return content.decode("utf-8", errors="replace")[:15000]
     except Exception:
         return "[Could not extract text]"
+
 
 
 def extract_with_azure_doc_intel(content: bytes, doc_type: str):
@@ -230,29 +299,71 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
 
     fields_to_find = missing + custom_keywords
 
-    system_prompt = SYSTEM_PROMPT + "\n\nReturn valid JSON only. No markdown. Start with { and end with }."
+    system_prompt = (
+        SYSTEM_PROMPT +
+        "\n\nCRITICAL: Return ONLY valid JSON. "
+        "No trailing commas. No comments. No markdown. "
+        "Every string must be in double quotes. "
+        "Start your response with { and end with }. "
+        "Do not truncate the JSON."
+    )
 
     user_prompt = (
         f"Document type: {doc_type} - {schema['description']}\n"
         f"Fields to extract: {', '.join(fields_to_find)}\n\n"
         f"Document text:\n{text[:9000]}\n\n"
-        f"Return valid JSON only."
+        f"Return ONLY valid complete JSON. No trailing commas."
     )
 
+    client, model = get_llm_client()
+
     try:
-        raw = await call_llm(system_prompt, user_prompt)
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            max_tokens=3000,  # Increased from 2000
+        )
 
-        # Clean markdown wrappers if model added them
-        raw = raw.strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw   = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
+        raw = resp.choices[0].message.content.strip()
+
+        # Step 1: Remove markdown code fences
+        if "```" in raw:
+            parts = raw.split("```")
+            for part in parts:
+                part = part.strip()
+                if part.startswith("json"):
+                    part = part[4:].strip()
+                if part.startswith("{"):
+                    raw = part
+                    break
+
         raw = raw.strip()
 
+        # Step 2: Find the outermost JSON object
+        start = raw.find("{")
+        end   = raw.rfind("}")
+        if start != -1 and end != -1:
+            raw = raw[start:end+1]
+
+        # Step 3: Fix trailing commas before } or ]
+        import re
+        raw = re.sub(r',\s*}', '}', raw)
+        raw = re.sub(r',\s*]', ']', raw)
+
+        # Step 4: Try to parse
         return json.loads(raw)
 
     except json.JSONDecodeError as e:
-        return {"summary": f"JSON parse error: {e}", "fields": {}}
+        # Step 5: If still failing, try to extract partial data
+        print(f"JSON parse error: {e}")
+        print(f"Raw response: {raw[:500]}")
+        return {
+            "summary": f"Partial extraction - JSON formatting issue in model response.",
+            "fields": {}
+        }
     except Exception as e:
         return {"summary": f"LLM error: {e}", "fields": {}}
 
