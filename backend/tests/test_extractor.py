@@ -38,40 +38,21 @@ def test_filename_hint_kyc():
 # ── Text extraction ───────────────────────────────────────────────────────────
 
 def test_extract_plain_text():
-    content = b"Invoice total INR 1000"
-    # Works whether extract_text_basic is a function or class method
-    try:
-        from extractor import extract_text_basic
-        result = extract_text_basic(content, ".txt")
-    except TypeError:
-        from extractor import DocumentExtractor
-        ext    = DocumentExtractor()
-        result = ext.extract_text_basic(content, ".txt")
+    from extractor import extract_text_basic
+    result = extract_text_basic(b"Invoice total INR 1000", ".txt")
     assert "Invoice" in result
     assert "1000" in result
 
 
 def test_extract_handles_bad_bytes():
-    content = b"Invoice \xff\xfe total INR 2000"
-    try:
-        from extractor import extract_text_basic
-        result = extract_text_basic(content, ".txt")
-    except TypeError:
-        from extractor import DocumentExtractor
-        ext    = DocumentExtractor()
-        result = ext.extract_text_basic(content, ".txt")
+    from extractor import extract_text_basic
+    result = extract_text_basic(b"Invoice \xff\xfe total INR 2000", ".txt")
     assert "Invoice" in result
 
 
 def test_extract_truncates_large_file():
-    content = ("x" * 20000).encode()
-    try:
-        from extractor import extract_text_basic
-        result = extract_text_basic(content, ".txt")
-    except TypeError:
-        from extractor import DocumentExtractor
-        ext    = DocumentExtractor()
-        result = ext.extract_text_basic(content, ".txt")
+    from extractor import extract_text_basic
+    result = extract_text_basic(("x" * 20000).encode(), ".txt")
     assert len(result) <= 15001
 
 
