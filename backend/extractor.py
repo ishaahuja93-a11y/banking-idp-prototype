@@ -99,19 +99,93 @@ Output format:
 
 
 def get_llm_client():
-    """Returns (async_client, model_name) based on what is configured."""
+    """Returns (client, model_name) based on configuration."""
     if settings.use_azure_openai:
+        from openai import AsyncAzureOpenAI
         client = AsyncAzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_key,
             api_version="2025-03-01-preview",
         )
         return client, settings.azure_openai_deployment
+    from openai import AsyncOpenAI
     client = AsyncOpenAI(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
     )
     return client, settings.openai_model
+
+
+async def call_llm_safe(system_prompt: str, user_prompt: str, max_tokens: int = 3000) -> str:
+    """
+    Universal LLM caller that works with BOTH:
+    - Old Chat Completions API (gpt-4.1-mini, gpt-4o, etc.)
+    - New Responses API (gpt-5-mini, gpt-5.4-mini, gpt-5.5, etc.)
+
+    Tries Chat Completions first. If Azure returns 'messages not supported'
+    or 'unsupported parameter', automatically retries with Responses API.
+    """
+    client, model = get_llm_client()
+
+    # ── Attempt 1: Standard Chat Completions API ─────────────────────────────
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content
+
+    except Exception as e:
+        error_str = str(e).lower()
+
+        # Check if this is the Responses API error
+        needs_responses_api = any(kw in error_str for kw in [
+            "messages",
+            "unsupported parameter",
+            "responses api",
+            "input",
+            "moved to",
+        ])
+
+        if not needs_responses_api:
+            # A different error — raise it immediately
+            raise e
+
+        # ── Attempt 2: New Responses API ─────────────────────────────────────
+        print(f"Chat Completions API not supported for {model}, switching to Responses API...")
+        try:
+            # Combine system + user into a single input string
+            combined_input = f"{system_prompt}\n\n{user_prompt}"
+
+            resp = await client.responses.create(
+                model=model,
+                input=combined_input,
+                max_output_tokens=max_tokens,
+            )
+
+            # Responses API returns output differently
+            if hasattr(resp, 'output_text'):
+                return resp.output_text
+            elif hasattr(resp, 'output') and resp.output:
+                for item in resp.output:
+                    if hasattr(item, 'content'):
+                        for block in item.content:
+                            if hasattr(block, 'text'):
+                                return block.text
+            return str(resp)
+
+        except Exception as responses_error:
+            raise Exception(
+                f"Both APIs failed for model '{model}'.\n"
+                f"Chat Completions error: {e}\n"
+                f"Responses API error: {responses_error}\n"
+                f"Solution: Deploy gpt-4.1-mini in Azure OpenAI Studio and set "
+                f"AZURE_OPENAI_DEPLOYMENT=gpt-4.1-mini"
+            )
 
 async def call_llm(system_prompt: str, user_prompt: str) -> str:
     """
@@ -302,34 +376,23 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
     system_prompt = (
         SYSTEM_PROMPT +
         "\n\nCRITICAL: Return ONLY valid JSON. "
-        "No trailing commas. No comments. No markdown. "
-        "Every string must be in double quotes. "
-        "Start your response with { and end with }. "
-        "Do not truncate the JSON."
+        "No trailing commas. No markdown fences. "
+        "Start with { and end with }. "
+        "Every string value must be in double quotes."
     )
 
     user_prompt = (
         f"Document type: {doc_type} - {schema['description']}\n"
         f"Fields to extract: {', '.join(fields_to_find)}\n\n"
         f"Document text:\n{text[:9000]}\n\n"
-        f"Return ONLY valid complete JSON. No trailing commas."
+        f"Return valid JSON only."
     )
 
-    client, model = get_llm_client()
-
     try:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_prompt},
-            ],
-            max_tokens=3000,  # Increased from 2000
-        )
+        raw = await call_llm_safe(system_prompt, user_prompt, max_tokens=3000)
+        raw = raw.strip()
 
-        raw = resp.choices[0].message.content.strip()
-
-        # Step 1: Remove markdown code fences
+        # Clean markdown fences if model added them
         if "```" in raw:
             parts = raw.split("```")
             for part in parts:
@@ -340,30 +403,21 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
                     raw = part
                     break
 
-        raw = raw.strip()
-
-        # Step 2: Find the outermost JSON object
+        # Find outermost JSON object
         start = raw.find("{")
         end   = raw.rfind("}")
         if start != -1 and end != -1:
-            raw = raw[start:end+1]
+            raw = raw[start:end + 1]
 
-        # Step 3: Fix trailing commas before } or ]
+        # Fix trailing commas
         import re
         raw = re.sub(r',\s*}', '}', raw)
         raw = re.sub(r',\s*]', ']', raw)
 
-        # Step 4: Try to parse
         return json.loads(raw)
 
     except json.JSONDecodeError as e:
-        # Step 5: If still failing, try to extract partial data
-        print(f"JSON parse error: {e}")
-        print(f"Raw response: {raw[:500]}")
-        return {
-            "summary": f"Partial extraction - JSON formatting issue in model response.",
-            "fields": {}
-        }
+        return {"summary": f"JSON parse error: {e}", "fields": {}}
     except Exception as e:
         return {"summary": f"LLM error: {e}", "fields": {}}
 
@@ -426,10 +480,9 @@ async def chat_about_document(raw_text: str, fields: dict,
     )
 
     try:
-        return await call_llm(system_prompt, user_prompt)
+        return await call_llm_safe(system_prompt, user_prompt, max_tokens=400)
     except Exception as e:
         return f"Agent error: {e}"
-
 
 # ─── Standalone wrappers ─────────────────────────────────────────────────────
 # These expose class methods as module-level functions so that:
