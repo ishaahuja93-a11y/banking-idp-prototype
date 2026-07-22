@@ -15,3 +15,6 @@ azure-identity
 pytest
 pytest-asyncio
 anyio
+pytesseract
+pdf2image
+pillow
