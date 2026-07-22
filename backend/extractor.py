@@ -199,21 +199,36 @@ async def extract_fields_llm(text: str, doc_type: str, already_found: list, cust
     try:
         resp = await client.chat.completions.create(
             model=model,
-            response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": (
-                    f"Document type: {doc_type} — {schema['description']}\n"
-                    f"Fields to extract: {', '.join(fields_to_find)}\n\n"
-                    f"Document text:\n{text[:9000]}"
-                )},
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT + "\n\nIMPORTANT: Your response must be valid JSON only. No markdown. No explanation. Start with { and end with }."
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Document type: {doc_type} — {schema['description']}\n"
+                        f"Fields to extract: {', '.join(fields_to_find)}\n\n"
+                        f"Document text:\n{text[:9000]}\n\n"
+                        f"Return valid JSON only."
+                    )
+                },
             ],
             temperature=0.05,
             max_tokens=2000,
         )
-        return json.loads(resp.choices[0].message.content)
-    except json.JSONDecodeError:
-        return {"summary": "LLM returned invalid JSON.", "fields": {}}
+        raw = resp.choices[0].message.content.strip()
+        # Clean up if model wrapped response in markdown
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        if raw.endswith("```"):
+            raw = raw[:-3].strip()
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"summary": f"JSON parse error: {e}", "fields": {}}
     except Exception as e:
         return {"summary": f"LLM error: {e}", "fields": {}}
 
