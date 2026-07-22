@@ -84,7 +84,7 @@ jobs:
     needs:
       - test-backend
       - build-frontend
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/DEV' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
@@ -141,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-frontend
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/DEV' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -164,7 +164,7 @@ jobs:
     needs:
       - deploy-backend
       - deploy-frontend
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/DEV'
     steps:
       - name: Health check
         env:
