@@ -114,7 +114,7 @@ async def test_llm_extract_invoice():
 
     from extractor import extract_fields_llm
     text   = "INVOICE INV-SMOKE-001 Date 01/07/2026 Total INR 29500 Vendor Test Corp"
-    result = await extract_fields_llm(text, "invoice", [])
+    result = await extract_fields_llm(text, "invoice", [], [])
     assert isinstance(result, dict)
     assert "fields" in result
     assert "summary" in result
@@ -126,6 +126,27 @@ async def test_llm_returns_dict_on_garbage():
         pytest.skip("No LLM API key configured")
 
     from extractor import extract_fields_llm
-    result = await extract_fields_llm("xkcd @#$ 123 noise", "invoice", [])
+    result = await extract_fields_llm("xkcd @#$ 123 noise", "invoice", [], [])
     assert isinstance(result, dict)
     assert "fields" in result
+
+@pytest.mark.asyncio
+async def test_llm_extract_with_custom_keywords():
+    if not settings.use_azure_openai and not settings.openai_api_key:
+        pytest.skip("No LLM API key configured")
+
+    from extractor import extract_fields_llm
+    text = """
+    INVOICE INV-2026-001
+    Vendor: Test Corp Ltd
+    SWIFT Code: TESTINBB
+    Total: INR 50000
+    """
+    # Pass a custom keyword
+    result = await extract_fields_llm(text, "invoice", [], ["SWIFT Code"])
+    assert isinstance(result, dict)
+    assert "fields" in result
+    # The custom keyword should appear as a field in the result
+    fields = result.get("fields", {})
+    assert "SWIFT Code" in fields or "swift_code" in fields or "swift code" in fields
+
