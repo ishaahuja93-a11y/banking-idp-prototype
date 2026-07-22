@@ -91,6 +91,46 @@ def get_llm_client():
     )
     return client, settings.openai_model
 
+async def call_llm(system_prompt: str, user_prompt: str) -> str:
+    """
+    Calls whichever LLM is configured.
+    Handles both old Chat Completions API (gpt-4.1-mini)
+    and new Responses API (gpt-5-mini) automatically.
+    """
+    client, model = get_llm_client()
+
+    # Try new Responses API first (gpt-5-mini)
+    try:
+        resp = await client.responses.create(
+            model=model,
+            instructions=system_prompt,
+            input=user_prompt,
+            temperature=0.05,
+            max_output_tokens=2000,
+        )
+        return resp.output_text
+
+    except Exception as responses_error:
+        error_str = str(responses_error)
+
+        # If Responses API not supported, fall back to Chat Completions API
+        if "responses" in error_str.lower() or "not found" in error_str.lower() or "404" in error_str:
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt},
+                    ],
+                    temperature=0.05,
+                    max_tokens=2000,
+                )
+                return resp.choices[0].message.content
+            except Exception as chat_error:
+                raise Exception(f"Both APIs failed. Responses: {responses_error}. Chat: {chat_error}")
+        else:
+            raise responses_error
+
 
 def detect_document_type(text: str, filename: str) -> str:
     combined = (text + " " + filename).lower()
@@ -184,53 +224,40 @@ def extract_with_azure_doc_intel(content: bytes, doc_type: str):
 
 
 async def extract_fields_llm(text: str, doc_type: str, already_found: list, custom_keywords: list) -> dict:
-    """
-    Stage 2: LLM fills gaps not found by Document Intelligence, summarizes, NER.
-    """
     schema  = DOCUMENT_SCHEMAS.get(doc_type, DOCUMENT_SCHEMAS["invoice"])
     fields  = schema["fields"]
     missing = [f for f in fields if f not in already_found]
     if not missing:
-        missing = fields[:4]  # always get summary + spot-check
+        missing = fields[:4]
 
     fields_to_find = missing + custom_keywords
-    client, model = get_llm_client()
+
+    system_prompt = SYSTEM_PROMPT + "\n\nReturn valid JSON only. No markdown. Start with { and end with }."
+
+    user_prompt = (
+        f"Document type: {doc_type} - {schema['description']}\n"
+        f"Fields to extract: {', '.join(fields_to_find)}\n\n"
+        f"Document text:\n{text[:9000]}\n\n"
+        f"Return valid JSON only."
+    )
 
     try:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT + "\n\nIMPORTANT: Your response must be valid JSON only. No markdown. No explanation. Start with { and end with }."
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Document type: {doc_type} — {schema['description']}\n"
-                        f"Fields to extract: {', '.join(fields_to_find)}\n\n"
-                        f"Document text:\n{text[:9000]}\n\n"
-                        f"Return valid JSON only."
-                    )
-                },
-            ],
-            temperature=0.05,
-            max_tokens=2000,
-        )
-        raw = resp.choices[0].message.content.strip()
-        # Clean up if model wrapped response in markdown
+        raw = await call_llm(system_prompt, user_prompt)
+
+        # Clean markdown wrappers if model added them
+        raw = raw.strip()
         if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-        if raw.endswith("```"):
-            raw = raw[:-3].strip()
+            lines = raw.split("\n")
+            raw   = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
+        raw = raw.strip()
+
         return json.loads(raw)
+
     except json.JSONDecodeError as e:
         return {"summary": f"JSON parse error: {e}", "fields": {}}
     except Exception as e:
         return {"summary": f"LLM error: {e}", "fields": {}}
+
 
 
 async def extract_document(content: bytes, suffix: str, doc_type: str, custom_keywords: list = None) -> dict:
@@ -270,32 +297,26 @@ async def extract_document(content: bytes, suffix: str, doc_type: str, custom_ke
 
 async def chat_about_document(raw_text: str, fields: dict,
                                doc_type: str, question: str) -> str:
-    """Agent: answer natural language questions about a document."""
     fields_str = json.dumps(
         {k: v.get("value") for k, v in fields.items() if isinstance(v, dict)},
         indent=2,
     )
-    client, model = get_llm_client()
+
+    system_prompt = (
+        "You are a document analyst for a bank. "
+        "Answer questions using only the document content provided. "
+        "Be concise - maximum 3 sentences. "
+        "If the answer is not in the document, say so explicitly."
+    )
+
+    user_prompt = (
+        f"Document type: {doc_type}\n\n"
+        f"Extracted fields:\n{fields_str}\n\n"
+        f"Raw text:\n{raw_text[:3000]}\n\n"
+        f"Question: {question}"
+    )
+
     try:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": (
-                    "You are a document analyst for a bank. "
-                    "Answer questions using only the document content provided. "
-                    "Be concise — maximum 3 sentences. "
-                    "If the answer is not in the document, say so clearly."
-                )},
-                {"role": "user", "content": (
-                    f"Document type: {doc_type}\n\n"
-                    f"Extracted fields:\n{fields_str}\n\n"
-                    f"Raw text:\n{raw_text[:3000]}\n\n"
-                    f"Question: {question}"
-                )},
-            ],
-            temperature=0.2,
-            max_tokens=400,
-        )
-        return resp.choices[0].message.content
+        return await call_llm(system_prompt, user_prompt)
     except Exception as e:
         return f"Agent error: {e}"
