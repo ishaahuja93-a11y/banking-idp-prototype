@@ -82,7 +82,7 @@ def get_llm_client():
         client = AsyncAzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_key,
-            api_version="2024-12-01-preview",
+            api_version="2025-03-01-preview",
         )
         return client, settings.azure_openai_deployment
     client = AsyncOpenAI(
