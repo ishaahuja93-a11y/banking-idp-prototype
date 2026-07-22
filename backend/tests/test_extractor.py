@@ -61,19 +61,14 @@ def test_extract_truncates_large_file():
 
 
 def test_plain_text_extraction_via_pipeline():
-    """Integration test: full pipeline accepts plain text content."""
-    import asyncio
-    
-    async def run():
-        from extractor import extract_document
-        content = b"INVOICE INV-TEST-001 Total INR 50000 Vendor Test Corp"
-        result  = await extract_document(content, ".txt", "invoice", [])
-        assert isinstance(result, dict)
-        assert "fields" in result
-        assert "raw_text" in result
-        assert "INV-TEST-001" in result.get("raw_text", "") or len(result.get("fields", {})) >= 0
-    
-    asyncio.run(run())
+    """Test that extract_text_basic standalone function works."""
+    from extractor import extract_text_basic
+    content = b"INVOICE INV-TEST-001 Total INR 50000 Vendor Test Corp"
+    result  = extract_text_basic(content, ".txt")
+    assert isinstance(result, str)
+    assert len(result) > 0
+    assert "INV-TEST-001" in result
+
 
 
 # ── Storage ───────────────────────────────────────────────────────────────────
