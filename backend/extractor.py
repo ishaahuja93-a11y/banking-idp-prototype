@@ -105,7 +105,6 @@ async def call_llm(system_prompt: str, user_prompt: str) -> str:
             model=model,
             instructions=system_prompt,
             input=user_prompt,
-            temperature=0.05,
             max_output_tokens=2000,
         )
         return resp.output_text
@@ -122,7 +121,6 @@ async def call_llm(system_prompt: str, user_prompt: str) -> str:
                         {"role": "system", "content": system_prompt},
                         {"role": "user",   "content": user_prompt},
                     ],
-                    temperature=0.05,
                     max_tokens=2000,
                 )
                 return resp.choices[0].message.content
